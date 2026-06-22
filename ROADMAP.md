@@ -4,6 +4,13 @@ This roadmap outlines the planned development phases for the ServMesh library-le
 
 ---
 
+## Differentiating Factors (Why ServMesh vs. Istio/Linkerd?)
+* **Library-Level (No Sidecars)**: Runs directly within the client binary via custom transport, bypassing the CPU/Memory overhead and network latency of sidecar proxies (like Envoy).
+* **Native Language Integration**: Directly resolves `serv://` schemas in code, bringing service discovery semantics directly into the application layer.
+* **Out-of-the-Box Resilience**: Seamlessly bundles retries, round-robin load-balancing, OTel trace context, and circuit breakers with zero external yaml configuration.
+
+---
+
 ## Phase 1: Service Registry & Resolver (Completed)
 - [x] **Service Registry**: Centralized control plane daemon for registering active service instances.
 - [x] **Registry API**: JSON endpoints for registration, heartbeat updates, and name resolution.
