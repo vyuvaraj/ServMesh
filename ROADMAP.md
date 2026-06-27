@@ -32,3 +32,13 @@ This roadmap outlines the planned development phases for the ServMesh library-le
 - [ ] **Topology Map**: Real-time dependency graph visualization in ServConsole.
 - [ ] **Breaker Alerting**: Sends telemetry signals to alert on circuit-breaker trips.
 - [ ] **Dynamic Routing Rules**: Update client-side routing and retries dynamically via registry config.
+
+
+## Phase 5: Advanced Traffic Management (Next Level)
+- [ ] **Rate Limiting per Service Pair**: Client-side rate limiting based on caller→callee identity (not just global).
+- [ ] **Fault Injection Testing**: Inject artificial latency, errors, or timeouts via registry config for chaos engineering.
+- [ ] **Service Versioning & Header Routing**: Route requests to specific versions based on `X-Service-Version` header. Blue/green at service mesh level.
+- [ ] **Health-Aware Load Balancing**: Weight routing based on real-time latency/error-rate feedback from OTel spans.
+- [ ] **Sidecar-less mTLS Rotation**: Automated cert rotation with zero-downtime using background goroutine.
+- [ ] **Service Dependency Graph API**: Expose real-time dependency topology data from heartbeat metadata for ServConsole.
+- [ ] **gRPC Support**: Extend the resolver and circuit breaker to handle gRPC connections natively.
