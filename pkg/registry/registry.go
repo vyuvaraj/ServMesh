@@ -10,7 +10,6 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -162,30 +161,6 @@ func (r *Registry) startEvictionLoop(interval time.Duration) {
 func (r *Registry) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	jwtSecret := os.Getenv("SERV_JWT_SECRET")
-	var validator *ServShared.AuthValidator
-	if jwtSecret != "" {
-		validator = ServShared.NewAuthValidator(jwtSecret, "", "")
-	}
-
-	checkAuth := func(w http.ResponseWriter, req *http.Request) bool {
-		if validator == nil {
-			return true
-		}
-		authHeader := req.Header.Get("Authorization")
-		token, err := ServShared.ExtractTokenFromHeader(authHeader)
-		if err != nil {
-			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
-			return false
-		}
-		_, err = validator.ValidateToken(token)
-		if err != nil {
-			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
-			return false
-		}
-		return true
-	}
-
 	mux.HandleFunc("/healthz", ServShared.HealthzHandler)
 	mux.HandleFunc("/readyz", ServShared.ReadyzHandler)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, req *http.Request) {
@@ -210,9 +185,6 @@ func (r *Registry) Handler() http.Handler {
 	mux.HandleFunc("/api/csr", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(w, req) {
 			return
 		}
 		if r.caCert == nil || r.caPrivKey == nil {
@@ -281,9 +253,6 @@ func (r *Registry) Handler() http.Handler {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if !checkAuth(w, req) {
-			return
-		}
 		var inst Instance
 		if err := json.NewDecoder(req.Body).Decode(&inst); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -301,9 +270,6 @@ func (r *Registry) Handler() http.Handler {
 	mux.HandleFunc("/api/heartbeat", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(w, req) {
 			return
 		}
 		var inst struct {
@@ -339,5 +305,5 @@ func (r *Registry) Handler() http.Handler {
 		json.NewEncoder(w).Encode(instances)
 	})
 
-	return mux
+	return ServShared.AuthMiddleware(mux)
 }
