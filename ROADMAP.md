@@ -29,7 +29,7 @@ This roadmap outlines the planned development phases for the ServMesh library-le
 - [x] **Canary Traffic Splitting**: Route percentage of traffic to new versions at client-side.
 
 ## Phase 4: Console & Observability (Planned)
-- [ ] **Topology Map**: Real-time dependency graph visualization in ServConsole.
+- [x] **Topology Map**: Real-time dependency graph visualization in ServConsole. [June 29, 2026]
 - [ ] **Breaker Alerting**: Sends telemetry signals to alert on circuit-breaker trips.
 - [ ] **Dynamic Routing Rules**: Update client-side routing and retries dynamically via registry config.
 
