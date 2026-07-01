@@ -28,6 +28,8 @@ import (
 	"servmesh/pkg/resilience"
 	"github.com/vyuvaraj/ServShared"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
 )
 
 type MeshTransport struct {
@@ -549,21 +551,52 @@ func getGRPCHost(httpAddr string) string {
 }
 
 func StartGRPCProxy(grpcAddr string, httpHandler http.Handler) (*grpc.Server, error) {
+	return StartGRPCProxyWithRegistry(grpcAddr, httpHandler, nil, "")
+}
+
+func StartGRPCProxyWithRegistry(grpcAddr string, httpHandler http.Handler, reg *registry.Registry, targetService string) (*grpc.Server, error) {
 	lis, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
 		return nil, err
 	}
 	s := grpc.NewServer()
-	pb.RegisterMeshServiceServer(s, &grpcProxyServer{handler: httpHandler})
+	pb.RegisterMeshServiceServer(s, &grpcProxyServer{
+		handler:       httpHandler,
+		registry:      reg,
+		targetService: targetService,
+	})
 	go s.Serve(lis)
 	return s, nil
 }
 
 type grpcProxyServer struct {
-	handler http.Handler
+	handler       http.Handler
+	registry      *registry.Registry
+	targetService string
 }
 
 func (p *grpcProxyServer) Forward(ctx context.Context, in *pb.MeshRequest) (*pb.MeshResponse, error) {
+	var clientIdentity string
+	if pr, ok := peer.FromContext(ctx); ok && pr.AuthInfo != nil {
+		if tlsInfo, ok := pr.AuthInfo.(credentials.TLSInfo); ok {
+			if len(tlsInfo.State.PeerCertificates) > 0 {
+				clientIdentity = tlsInfo.State.PeerCertificates[0].Subject.CommonName
+			}
+		}
+	}
+	if clientIdentity == "" {
+		clientIdentity = in.Headers["X-Mesh-Source"]
+	}
+
+	if p.registry != nil && clientIdentity != "" {
+		if !p.registry.ValidateNetworkPolicy(clientIdentity, p.targetService, in.Path) {
+			return &pb.MeshResponse{
+				StatusCode: http.StatusForbidden,
+				Body:       []byte("mTLS Network Policy Blocked: Access Denied"),
+			}, nil
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, in.Method, in.Path, bytes.NewReader(in.Body))
 	if err != nil {
 		return nil, err

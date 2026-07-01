@@ -619,3 +619,86 @@ func TestGRPCMeshTransport(t *testing.T) {
 		t.Errorf("expected header echo 'mesh-test', got %q", resp.Header.Get("X-Custom-Echo"))
 	}
 }
+
+func TestZeroTrustNetworkPolicies(t *testing.T) {
+	os.Setenv("SERV_MESH_GRPC", "true")
+	defer os.Unsetenv("SERV_MESH_GRPC")
+
+	reg := registry.NewRegistry(5 * time.Second)
+	defer reg.Close()
+	regServer := httptest.NewServer(reg.Handler())
+	defer regServer.Close()
+
+	policy := registry.NetworkPolicy{
+		SourceService: "trusted-app",
+		TargetService: "secure-db",
+		AllowedPaths:  []string{"/api/db/read"},
+	}
+	policyBody, _ := json.Marshal(policy)
+	respPolicy, err := http.Post(regServer.URL+"/api/policies", "application/json", bytes.NewReader(policyBody))
+	if err != nil {
+		t.Fatalf("failed to register policy: %v", err)
+	}
+	respPolicy.Body.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/db/read", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("db read success"))
+	})
+	mux.HandleFunc("/api/db/write", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("db write success"))
+	})
+	httpServer := httptest.NewServer(mux)
+	defer httpServer.Close()
+
+	u, _ := url.Parse(httpServer.URL)
+	var portInt int
+	fmt.Sscanf(u.Port(), "%d", &portInt)
+	grpcAddr := fmt.Sprintf("127.0.0.1:%d", portInt+1000)
+
+	grpcServer, err := client.StartGRPCProxyWithRegistry(grpcAddr, mux, reg, "secure-db")
+	if err != nil {
+		t.Fatalf("failed to start gRPC proxy: %v", err)
+	}
+	defer grpcServer.Stop()
+
+	registerInstance(t, regServer.URL+"/api/register", "secure-db", httpServer.URL)
+
+	transport := client.NewMeshTransport(regServer.URL, 50*time.Millisecond)
+	httpClient := &http.Client{Transport: transport}
+
+	req1, _ := http.NewRequest("GET", "serv://secure-db/api/db/read", nil)
+	req1.Header.Set("X-Mesh-Source", "trusted-app")
+	resp1, err := httpClient.Do(req1)
+	if err != nil {
+		t.Fatalf("request 1 failed: %v", err)
+	}
+	defer resp1.Body.Close()
+	if resp1.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp1.StatusCode)
+	}
+
+	req2, _ := http.NewRequest("POST", "serv://secure-db/api/db/write", nil)
+	req2.Header.Set("X-Mesh-Source", "trusted-app")
+	resp2, err := httpClient.Do(req2)
+	if err != nil {
+		t.Fatalf("request 2 failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden, got %d", resp2.StatusCode)
+	}
+
+	req3, _ := http.NewRequest("GET", "serv://secure-db/api/db/read", nil)
+	req3.Header.Set("X-Mesh-Source", "malicious-app")
+	resp3, err := httpClient.Do(req3)
+	if err != nil {
+		t.Fatalf("request 3 failed: %v", err)
+	}
+	defer resp3.Body.Close()
+	if resp3.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden, got %d", resp3.StatusCode)
+	}
+}

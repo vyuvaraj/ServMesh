@@ -39,10 +39,17 @@ type RoutingRule struct {
 	FaultErrorRatio  float64 `json:"fault_error_ratio,omitempty"`
 }
 
+type NetworkPolicy struct {
+	SourceService string   `json:"source_service"`
+	TargetService string   `json:"target_service"`
+	AllowedPaths  []string `json:"allowed_paths"`
+}
+
 type Registry struct {
 	mu        sync.RWMutex
 	instances map[string][]Instance // key: service name
 	rules     map[string]RoutingRule
+	policies  map[string][]NetworkPolicy // key: target service name
 	ttl       time.Duration
 
 	caCert        *x509.Certificate
@@ -54,6 +61,7 @@ func NewRegistry(ttl time.Duration) *Registry {
 	r := &Registry{
 		instances: make(map[string][]Instance),
 		rules:     make(map[string]RoutingRule),
+		policies:  make(map[string][]NetworkPolicy),
 		ttl:       ttl,
 	}
 	r.generateRootCA()
@@ -407,6 +415,31 @@ func (r *Registry) Handler() http.Handler {
 		json.NewEncoder(w).Encode(rule)
 	})
 
+	mux.HandleFunc("/api/policies", func(w http.ResponseWriter, req *http.Request) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+
+		if req.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(r.policies)
+			return
+		} else if req.Method == http.MethodPost {
+			var policy NetworkPolicy
+			if err := json.NewDecoder(req.Body).Decode(&policy); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if policy.TargetService == "" || policy.SourceService == "" {
+				http.Error(w, "Source and Target services required", http.StatusBadRequest)
+				return
+			}
+			target := strings.ToLower(policy.TargetService)
+			r.policies[target] = append(r.policies[target], policy)
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+	})
+
 	return ServShared.AuthMiddleware(mux)
 }
 
@@ -497,4 +530,30 @@ func (r *Registry) Close() {
 		r.multicastConn.Close()
 		r.multicastConn = nil
 	}
+}
+
+func (r *Registry) ValidateNetworkPolicy(source, target, path string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	target = strings.ToLower(target)
+	rules, exists := r.policies[target]
+	if !exists || len(rules) == 0 {
+		return true // Default allow if no policies configured for target
+	}
+
+	source = strings.ToLower(source)
+	for _, p := range rules {
+		if strings.ToLower(p.SourceService) == source {
+			if len(p.AllowedPaths) == 0 {
+				return true
+			}
+			for _, allowed := range p.AllowedPaths {
+				if allowed == "*" || strings.HasPrefix(path, allowed) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
