@@ -165,7 +165,7 @@ func (r *Registry) ResolveRegion(service, region string) []Instance {
 
 	var regional []Instance
 	for _, inst := range list {
-		if region != "" && strings.ToLower(inst.Region) == strings.ToLower(region) {
+		if region != "" && strings.EqualFold(inst.Region, region) {
 			regional = append(regional, inst)
 		}
 	}
@@ -364,11 +364,12 @@ func (r *Registry) Handler() http.Handler {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 
-		if req.Method == http.MethodGet {
+		switch req.Method {
+		case http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(r.rules)
 			return
-		} else if req.Method == http.MethodPost {
+		case http.MethodPost:
 			var rule RoutingRule
 			if err := json.NewDecoder(req.Body).Decode(&rule); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -382,8 +383,9 @@ func (r *Registry) Handler() http.Handler {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"status":"success"}`))
 			return
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	})
 
 	mux.HandleFunc("/api/rules/", func(w http.ResponseWriter, req *http.Request) {
@@ -420,11 +422,12 @@ func (r *Registry) Handler() http.Handler {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 
-		if req.Method == http.MethodGet {
+		switch req.Method {
+		case http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(r.policies)
 			return
-		} else if req.Method == http.MethodPost {
+		case http.MethodPost:
 			var policy NetworkPolicy
 			if err := json.NewDecoder(req.Body).Decode(&policy); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -438,6 +441,8 @@ func (r *Registry) Handler() http.Handler {
 			r.policies[target] = append(r.policies[target], policy)
 			w.WriteHeader(http.StatusCreated)
 			return
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
 	})
 
