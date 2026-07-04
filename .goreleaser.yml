@@ -1,4 +1,4 @@
-project_name: servmesh
+﻿project_name: servmesh
 version: 2
 
 before:
@@ -47,7 +47,7 @@ dockers:
   - image_templates:
       - "ghcr.io/vyuvaraj/servmesh:{{.Tag}}"
       - "ghcr.io/vyuvaraj/servmesh:latest"
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.goreleaser
     build_flag_templates:
       - "--label=org.opencontainers.image.title=ServMesh"
       - "--label=org.opencontainers.image.version={{.Version}}"
