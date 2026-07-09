@@ -250,7 +250,13 @@ func (t *MeshTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			isErr = 1.0
 		}
 		t.errorRates[target] = 0.9*oldErrRate + 0.1*isErr
+		newLatency := t.latencies[target]
+		newErrRate := t.errorRates[target]
 		t.mu.Unlock()
+
+		// Asynchronously push health metrics to the control-plane registry so
+		// operators can query /api/topology for live observability data.
+		go t.reportMetrics(serviceName, target, float64(newLatency)/float64(time.Millisecond), newErrRate)
 
 		if cancel != nil && (err != nil || (resp != nil && resp.StatusCode >= 500)) {
 			cancel()
@@ -802,4 +808,28 @@ func (t *MeshTransport) getRateLimiter(caller, callee string) *RateLimiter {
 	defer t.mu.Unlock()
 	key := strings.ToLower(caller) + "/" + strings.ToLower(callee)
 	return t.rateLimiters[key]
+}
+
+// reportMetrics pushes a health snapshot to the registry's /api/health-metrics
+// endpoint as a best-effort, fire-and-forget operation. Errors are silently
+// discarded to avoid impacting the calling goroutine.
+func (t *MeshTransport) reportMetrics(service, address string, latencyMs, errRate float64) {
+	if t.registryURL == "" {
+		return
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"service":        service,
+		"address":        address,
+		"avg_latency_ms": latencyMs,
+		"error_rate":     errRate,
+	})
+	req, err := http.NewRequest(http.MethodPost, t.registryURL+"/api/health-metrics", bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err == nil {
+		resp.Body.Close()
+	}
 }

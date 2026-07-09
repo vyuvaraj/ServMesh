@@ -46,11 +46,37 @@ type NetworkPolicy struct {
 	AllowedPaths  []string `json:"allowed_paths"`
 }
 
+// HealthMetric captures real-time health data reported by mesh clients for a
+// single service instance. Clients push this after each RPC call.
+type HealthMetric struct {
+	Service      string    `json:"service"`
+	Address      string    `json:"address"`
+	AvgLatencyMs float64   `json:"avg_latency_ms"`
+	ErrorRate    float64   `json:"error_rate"`
+	ReportedAt   time.Time `json:"reported_at"`
+}
+
+// TopologyEntry is the topology view of a single instance combining registry
+// data with the latest health metrics.
+type TopologyEntry struct {
+	Service      string    `json:"service"`
+	Address      string    `json:"address"`
+	Version      string    `json:"version,omitempty"`
+	Region       string    `json:"region,omitempty"`
+	Weight       int       `json:"weight,omitempty"`
+	AvgLatencyMs float64   `json:"avg_latency_ms"`
+	ErrorRate    float64   `json:"error_rate"`
+	State        string    `json:"state"` // "healthy", "degraded", or "unknown"
+	LastSeen     time.Time `json:"last_seen"`
+	ReportedAt   time.Time `json:"reported_at,omitempty"`
+}
+
 type Registry struct {
 	mu        sync.RWMutex
 	instances map[string][]Instance // key: service name
 	rules     map[string]RoutingRule
 	policies  map[string][]NetworkPolicy // key: target service name
+	healthMetrics map[string]HealthMetric   // key: instance address
 	ttl       time.Duration
 
 	caCert        *x509.Certificate
@@ -63,11 +89,12 @@ type Registry struct {
 
 func NewRegistry(ttl time.Duration) *Registry {
 	r := &Registry{
-		instances: make(map[string][]Instance),
-		rules:     make(map[string]RoutingRule),
-		policies:  make(map[string][]NetworkPolicy),
-		ttl:       ttl,
-		locks:     lock.NewStore(ttl),
+		instances:     make(map[string][]Instance),
+		rules:         make(map[string]RoutingRule),
+		policies:      make(map[string][]NetworkPolicy),
+		healthMetrics: make(map[string]HealthMetric),
+		ttl:           ttl,
+		locks:         lock.NewStore(ttl),
 	}
 	r.generateRootCA()
 	r.startMulticastListener()
@@ -206,6 +233,15 @@ func (r *Registry) ResolveVersion(service, version string) []Instance {
 	healthy := make([]Instance, len(list))
 	copy(healthy, list)
 	return healthy
+}
+
+// RecordHealthMetric stores the latest health snapshot for an instance address.
+// Called by the registry HTTP handler when a mesh client pushes metrics.
+func (r *Registry) RecordHealthMetric(m HealthMetric) {
+	m.ReportedAt = time.Now()
+	r.mu.Lock()
+	r.healthMetrics[m.Address] = m
+	r.mu.Unlock()
 }
 
 func (r *Registry) Evict() {
@@ -616,6 +652,73 @@ func (r *Registry) Handler() http.Handler {
 		entries := r.locks.List()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(entries)
+	})
+
+	// ── Health Metrics & Topology ─────────────────────────────────────────────
+
+	// POST /api/health-metrics
+	// Body: {"service":"...","address":"...","avg_latency_ms":12.5,"error_rate":0.02}
+	mux.HandleFunc("/api/health-metrics", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var m HealthMetric
+		if err := json.NewDecoder(req.Body).Decode(&m); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if m.Address == "" || m.Service == "" {
+			http.Error(w, "service and address are required", http.StatusBadRequest)
+			return
+		}
+		r.RecordHealthMetric(m)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	// GET /api/topology
+	// Returns all registered instances annotated with latest health metrics.
+	mux.HandleFunc("/api/topology", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		svcFilter := strings.ToLower(req.URL.Query().Get("service"))
+
+		r.mu.RLock()
+		var entries []TopologyEntry
+		for svc, list := range r.instances {
+			if svcFilter != "" && svc != svcFilter {
+				continue
+			}
+			for _, inst := range list {
+				entry := TopologyEntry{
+					Service:  inst.Service,
+					Address:  inst.Address,
+					Version:  inst.Version,
+					Region:   inst.Region,
+					Weight:   inst.Weight,
+					LastSeen: inst.LastSeen,
+					State:    "unknown",
+				}
+				if m, ok := r.healthMetrics[inst.Address]; ok {
+					entry.AvgLatencyMs = m.AvgLatencyMs
+					entry.ErrorRate = m.ErrorRate
+					entry.ReportedAt = m.ReportedAt
+					if m.ErrorRate > 0.05 || m.AvgLatencyMs > 500 {
+						entry.State = "degraded"
+					} else {
+						entry.State = "healthy"
+					}
+				}
+				entries = append(entries, entry)
+			}
+		}
+		r.mu.RUnlock()
+
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(entries)
 	})
 

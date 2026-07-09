@@ -881,3 +881,155 @@ func TestServMeshVersionRouting(t *testing.T) {
 		t.Errorf("expected 4 total unversioned requests, got %d", v1Count+v2Count)
 	}
 }
+
+func TestHealthMetricsPush(t *testing.T) {
+	// Start registry
+	reg := registry.NewRegistry(5 * time.Second)
+	defer reg.Close()
+	regServer := httptest.NewServer(reg.Handler())
+	defer regServer.Close()
+
+	// Backend
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("pong"))
+	}))
+	defer backend.Close()
+
+	// Register instance
+	registerInstance(t, regServer.URL+"/api/register", "health-svc", backend.URL)
+
+	// Make 4 requests via MeshTransport so metrics are pushed
+	transport := client.NewMeshTransport(regServer.URL, 50*time.Millisecond)
+	httpClient := &http.Client{Transport: transport}
+	for i := 0; i < 4; i++ {
+		resp, err := httpClient.Get("serv://health-svc/ping")
+		if err != nil {
+			t.Fatalf("request %d failed: %v", i, err)
+		}
+		resp.Body.Close()
+	}
+
+	// Give async goroutines a moment to push metrics
+	time.Sleep(100 * time.Millisecond)
+
+	// Query /api/topology
+	resp, err := http.Get(regServer.URL + "/api/topology")
+	if err != nil {
+		t.Fatalf("topology request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("topology returned status %d", resp.StatusCode)
+	}
+
+	var entries []registry.TopologyEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		t.Fatalf("failed to decode topology: %v", err)
+	}
+
+	if len(entries) == 0 {
+		t.Fatal("expected at least 1 topology entry")
+	}
+
+	var found *registry.TopologyEntry
+	for i := range entries {
+		if entries[i].Address == backend.URL {
+			found = &entries[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("backend %s not found in topology", backend.URL)
+	}
+	t.Logf("Topology entry: service=%s latency=%.1fms err=%.2f state=%s",
+		found.Service, found.AvgLatencyMs, found.ErrorRate, found.State)
+
+	// After successful requests the metrics should have been reported
+	if found.AvgLatencyMs <= 0 {
+		t.Errorf("expected AvgLatencyMs > 0, got %.2f", found.AvgLatencyMs)
+	}
+	if found.State != "healthy" {
+		t.Errorf("expected state 'healthy', got '%s'", found.State)
+	}
+}
+
+func TestTopologyEndpoint(t *testing.T) {
+	// Start registry
+	reg := registry.NewRegistry(5 * time.Second)
+	defer reg.Close()
+	regServer := httptest.NewServer(reg.Handler())
+	defer regServer.Close()
+
+	// Two backends for two different services
+	svc1Backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer svc1Backend.Close()
+	svc2Backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer svc2Backend.Close()
+
+	registerInstance(t, regServer.URL+"/api/register", "alpha-svc", svc1Backend.URL)
+	registerInstance(t, regServer.URL+"/api/register", "beta-svc", svc2Backend.URL)
+
+	// Push a manual health metric for alpha-svc
+	metric := registry.HealthMetric{
+		Service:      "alpha-svc",
+		Address:      svc1Backend.URL,
+		AvgLatencyMs: 42.5,
+		ErrorRate:    0.01,
+	}
+	body, _ := json.Marshal(metric)
+	postResp, err := http.Post(regServer.URL+"/api/health-metrics", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to push health metric: %v", err)
+	}
+	postResp.Body.Close()
+	if postResp.StatusCode != http.StatusOK {
+		t.Fatalf("health-metrics POST returned %d", postResp.StatusCode)
+	}
+
+	// Query topology — all services
+	topoResp, err := http.Get(regServer.URL + "/api/topology")
+	if err != nil {
+		t.Fatalf("topology GET failed: %v", err)
+	}
+	defer topoResp.Body.Close()
+
+	var all []registry.TopologyEntry
+	json.NewDecoder(topoResp.Body).Decode(&all)
+
+	services := map[string]bool{}
+	for _, e := range all {
+		services[e.Service] = true
+	}
+	if !services["alpha-svc"] || !services["beta-svc"] {
+		t.Errorf("expected both alpha-svc and beta-svc in topology, got: %+v", services)
+	}
+
+	// Query topology — filter by service
+	filterResp, err := http.Get(regServer.URL + "/api/topology?service=alpha-svc")
+	if err != nil {
+		t.Fatalf("topology filter GET failed: %v", err)
+	}
+	defer filterResp.Body.Close()
+
+	var filtered []registry.TopologyEntry
+	json.NewDecoder(filterResp.Body).Decode(&filtered)
+
+	if len(filtered) != 1 {
+		t.Errorf("expected 1 filtered entry, got %d", len(filtered))
+	}
+	if len(filtered) > 0 {
+		e := filtered[0]
+		if e.AvgLatencyMs != 42.5 {
+			t.Errorf("expected AvgLatencyMs=42.5, got %.2f", e.AvgLatencyMs)
+		}
+		if e.State != "healthy" {
+			t.Errorf("expected state 'healthy', got '%s'", e.State)
+		}
+		t.Logf("alpha-svc: latency=%.1fms err=%.2f state=%s", e.AvgLatencyMs, e.ErrorRate, e.State)
+	}
+}

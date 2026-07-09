@@ -38,7 +38,7 @@ This roadmap outlines the planned development phases for the ServMesh library-le
 - [x] **Rate Limiting per Service Pair**: Client-side token-bucket rate limiting keyed on caller→callee identity; returns HTTP 429 when burst is exhausted. [July 9, 2026]
 - [x] **Fault Injection Testing**: Inject artificial latency, errors, or timeouts via registry config for chaos engineering. [June 30, 2026]
 - [x] **Service Versioning & Header Routing**: Route requests to specific versions via `X-Service-Version` header with graceful fallback. Blue/green at service mesh level. [July 9, 2026]
-- [ ] **Health-Aware Load Balancing**: Weight routing based on real-time latency/error-rate feedback from OTel spans.
+- [x] **Health-Aware Load Balancing**: OTel-feedback weighted routing + `POST /api/health-metrics` push endpoint + `GET /api/topology` aggregate view for live observability. [July 9, 2026]
 - [x] **Sidecar-less mTLS Rotation**: Automated cert rotation with zero-downtime using background goroutine (SEC.7)
 - [ ] **Service Dependency Graph API**: Expose real-time dependency topology data from heartbeat metadata for ServConsole.
 - [ ] **gRPC Support**: Extend the resolver and circuit breaker to handle gRPC connections natively.
@@ -47,6 +47,6 @@ This roadmap outlines the planned development phases for the ServMesh library-le
 - [x] **Ecosystem Performance Suite** — Multi-tiered Go micro-benchmarks, k6 component load tests, and distributed end-to-end telemetry workloads (OPS.7)
 - [x] **Automated mTLS Rotation** — Certificate lifecycle management with automatic renewal and zero-downtime rotation (SEC.7)
 - [ ] **Local Dev Service Mesh** — One-command `serv mesh up` that starts a local registry + resolver with zero config for fast developer iteration (DX.8)
-- [ ] **Mesh Topology CLI** — `servmesh inspect` command showing live service-to-service call graph, circuit breaker states, and latency distribution (DevOps)
+- [x] **Mesh Topology CLI** — `go run ./cmd/inspect/` command showing live service topology table with circuit-breaker state, latency, and error-rate distribution. Supports `--watch` and `--service` flags. [July 9, 2026]
 
 > See [UNIFIED_ROADMAP.md](../UNIFIED_ROADMAP.md) for the full ecosystem priority matrix and architectural recommendations.
