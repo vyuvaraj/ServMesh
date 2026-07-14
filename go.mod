@@ -2,10 +2,12 @@ module servmesh
 
 go 1.26.4
 
-require github.com/vyuvaraj/ServShared v0.1.1-0.20260709055203-a69c44124438
+require github.com/vyuvaraj/ServShared v1.0.2-0.20260714131806-8f86487bce70
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/hashicorp/consul/api v1.34.4
+	go.etcd.io/etcd/client/v3 v3.7.0
 	google.golang.org/grpc v1.82.0
 )
 
@@ -17,7 +19,6 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
-	github.com/hashicorp/consul/api v1.34.4 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-hclog v1.6.3 // indirect
@@ -32,7 +33,6 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	go.etcd.io/etcd/api/v3 v3.7.0 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.7.0 // indirect
-	go.etcd.io/etcd/client/v3 v3.7.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
@@ -43,4 +43,3 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-replace github.com/vyuvaraj/ServShared => ../ServShared
