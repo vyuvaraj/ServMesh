@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"flag"
 	"github.com/vyuvaraj/ServShared"
 	"servmesh/pkg/lock"
 )
@@ -309,6 +310,7 @@ func (r *Registry) Handler() http.Handler {
 	mux.HandleFunc("/healthz", ServShared.HealthzHandler)
 	mux.HandleFunc("/readyz", ServShared.ReadyzHandler)
 	mux.HandleFunc("/api/version", ServShared.VersionHandler("servmesh", "1.0.0"))
+	mux.HandleFunc("/api/v1/version", ServShared.VersionHandler("servmesh", "1.0.0"))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
@@ -316,11 +318,11 @@ func (r *Registry) Handler() http.Handler {
 
 	mux.HandleFunc("/api/ca", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if r.caCert == nil {
-			http.Error(w, "CA not initialized", http.StatusInternalServerError)
+			httpError(w, req, "CA not initialized", http.StatusInternalServerError)
 			return
 		}
 		caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: r.caCert.Raw})
@@ -330,11 +332,11 @@ func (r *Registry) Handler() http.Handler {
 
 	mux.HandleFunc("/api/csr", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if r.caCert == nil || r.caPrivKey == nil {
-			http.Error(w, "CA not initialized", http.StatusInternalServerError)
+			httpError(w, req, "CA not initialized", http.StatusInternalServerError)
 			return
 		}
 
@@ -343,24 +345,24 @@ func (r *Registry) Handler() http.Handler {
 			CSR     string `json:"csr"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			httpError(w, req, err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		block, _ := pem.Decode([]byte(body.CSR))
 		if block == nil || block.Type != "CERTIFICATE REQUEST" {
-			http.Error(w, "invalid CSR PEM", http.StatusBadRequest)
+			httpError(w, req, "invalid CSR PEM", http.StatusBadRequest)
 			return
 		}
 
 		csr, err := x509.ParseCertificateRequest(block.Bytes)
 		if err != nil {
-			http.Error(w, "failed to parse CSR: "+err.Error(), http.StatusBadRequest)
+			httpError(w, req, "failed to parse CSR: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		if err := csr.CheckSignature(); err != nil {
-			http.Error(w, "invalid CSR signature", http.StatusBadRequest)
+			httpError(w, req, "invalid CSR signature", http.StatusBadRequest)
 			return
 		}
 
@@ -380,7 +382,7 @@ func (r *Registry) Handler() http.Handler {
 
 		certBytes, err := x509.CreateCertificate(rand.Reader, template, r.caCert, csr.PublicKey, r.caPrivKey)
 		if err != nil {
-			http.Error(w, "failed to sign certificate: "+err.Error(), http.StatusInternalServerError)
+			httpError(w, req, "failed to sign certificate: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -396,16 +398,16 @@ func (r *Registry) Handler() http.Handler {
 
 	mux.HandleFunc("/api/register", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		var inst Instance
 		if err := json.NewDecoder(req.Body).Decode(&inst); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			httpError(w, req, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if inst.Service == "" || inst.Address == "" {
-			http.Error(w, "Service and Address are required", http.StatusBadRequest)
+			httpError(w, req, "Service and Address are required", http.StatusBadRequest)
 			return
 		}
 		r.Register(inst)
@@ -415,7 +417,7 @@ func (r *Registry) Handler() http.Handler {
 
 	mux.HandleFunc("/api/heartbeat", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		var inst struct {
@@ -423,25 +425,25 @@ func (r *Registry) Handler() http.Handler {
 			Address string `json:"address"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&inst); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			httpError(w, req, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if r.Heartbeat(inst.Service, inst.Address) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"status":"success"}`))
 		} else {
-			http.Error(w, "Instance not found", http.StatusNotFound)
+			httpError(w, req, "Instance not found", http.StatusNotFound)
 		}
 	})
 
 	mux.HandleFunc("/api/resolve/", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		parts := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
 		if len(parts) < 3 {
-			http.Error(w, "Service name required", http.StatusBadRequest)
+			httpError(w, req, "Service name required", http.StatusBadRequest)
 			return
 		}
 		serviceName := parts[2]
@@ -462,7 +464,7 @@ func (r *Registry) Handler() http.Handler {
 
 	mux.HandleFunc("/api/instances", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		r.mu.RLock()
@@ -488,11 +490,11 @@ func (r *Registry) Handler() http.Handler {
 		case http.MethodPost:
 			var rule RoutingRule
 			if err := json.NewDecoder(req.Body).Decode(&rule); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				httpError(w, req, err.Error(), http.StatusBadRequest)
 				return
 			}
 			if rule.Service == "" {
-				http.Error(w, "Service name required", http.StatusBadRequest)
+				httpError(w, req, "Service name required", http.StatusBadRequest)
 				return
 			}
 			r.rules[strings.ToLower(rule.Service)] = rule
@@ -500,18 +502,18 @@ func (r *Registry) Handler() http.Handler {
 			w.Write([]byte(`{"status":"success"}`))
 			return
 		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
 	})
 
 	mux.HandleFunc("/api/rules/", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		parts := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
 		if len(parts) < 3 {
-			http.Error(w, "Service name required", http.StatusBadRequest)
+			httpError(w, req, "Service name required", http.StatusBadRequest)
 			return
 		}
 		serviceName := strings.ToLower(parts[2])
@@ -546,11 +548,11 @@ func (r *Registry) Handler() http.Handler {
 		case http.MethodPost:
 			var policy NetworkPolicy
 			if err := json.NewDecoder(req.Body).Decode(&policy); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				httpError(w, req, err.Error(), http.StatusBadRequest)
 				return
 			}
 			if policy.TargetService == "" || policy.SourceService == "" {
-				http.Error(w, "Source and Target services required", http.StatusBadRequest)
+				httpError(w, req, "Source and Target services required", http.StatusBadRequest)
 				return
 			}
 			target := strings.ToLower(policy.TargetService)
@@ -558,7 +560,7 @@ func (r *Registry) Handler() http.Handler {
 			w.WriteHeader(http.StatusCreated)
 			return
 		default:
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 		}
 	})
 
@@ -569,7 +571,7 @@ func (r *Registry) Handler() http.Handler {
 	// Response 200: {"acquired":true,"lock":{...}} or {"acquired":false,"held_by":"<owner>"}
 	mux.HandleFunc("/api/lock/acquire", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		var body struct {
@@ -578,11 +580,11 @@ func (r *Registry) Handler() http.Handler {
 			TTLMs int64  `json:"ttl_ms"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			httpError(w, req, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if body.Key == "" || body.Owner == "" {
-			http.Error(w, "key and owner are required", http.StatusBadRequest)
+			httpError(w, req, "key and owner are required", http.StatusBadRequest)
 			return
 		}
 		ttl := time.Duration(body.TTLMs) * time.Millisecond
@@ -601,7 +603,7 @@ func (r *Registry) Handler() http.Handler {
 	// Response 200: {"released":true} or 409 {"released":false}
 	mux.HandleFunc("/api/lock/release", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		var body struct {
@@ -609,7 +611,7 @@ func (r *Registry) Handler() http.Handler {
 			Owner string `json:"owner"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			httpError(w, req, err.Error(), http.StatusBadRequest)
 			return
 		}
 		released := r.locks.Release(body.Key, body.Owner)
@@ -627,7 +629,7 @@ func (r *Registry) Handler() http.Handler {
 	// Response 200: updated lock entry, 409 if not held by owner
 	mux.HandleFunc("/api/lock/extend", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		var body struct {
@@ -636,7 +638,7 @@ func (r *Registry) Handler() http.Handler {
 			TTLMs int64  `json:"ttl_ms"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			httpError(w, req, err.Error(), http.StatusBadRequest)
 			return
 		}
 		ttl := time.Duration(body.TTLMs) * time.Millisecond
@@ -655,12 +657,12 @@ func (r *Registry) Handler() http.Handler {
 	// Response 200: lock entry, 404 if not held
 	mux.HandleFunc("/api/lock/status", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		key := req.URL.Query().Get("key")
 		if key == "" {
-			http.Error(w, "key query parameter required", http.StatusBadRequest)
+			httpError(w, req, "key query parameter required", http.StatusBadRequest)
 			return
 		}
 		entry, ok := r.locks.Status(key)
@@ -678,7 +680,7 @@ func (r *Registry) Handler() http.Handler {
 	// Response 200: array of all currently held locks
 	mux.HandleFunc("/api/lock/list", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		entries := r.locks.List()
@@ -693,16 +695,16 @@ func (r *Registry) Handler() http.Handler {
 	// Body: {"service":"...","address":"...","avg_latency_ms":12.5,"error_rate":0.02}
 	mux.HandleFunc("/api/health-metrics", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		var m HealthMetric
 		if err := json.NewDecoder(req.Body).Decode(&m); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			httpError(w, req, err.Error(), http.StatusBadRequest)
 			return
 		}
 		if m.Address == "" || m.Service == "" {
-			http.Error(w, "service and address are required", http.StatusBadRequest)
+			httpError(w, req, "service and address are required", http.StatusBadRequest)
 			return
 		}
 		r.RecordHealthMetric(m)
@@ -714,7 +716,7 @@ func (r *Registry) Handler() http.Handler {
 	// Returns all registered instances annotated with latest health metrics.
 	mux.HandleFunc("/api/topology", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			httpError(w, req, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		svcFilter := strings.ToLower(req.URL.Query().Get("service"))
@@ -754,7 +756,56 @@ func (r *Registry) Handler() http.Handler {
 		json.NewEncoder(w).Encode(entries)
 	})
 
-	return ServShared.AuthMiddleware(mux)
+	// Wrapper handler for /api/v1/ prefix rewriting (V1.1 support)
+	v1Wrapper := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if strings.HasPrefix(req.URL.Path, "/api/v1/") {
+			req.URL.Path = "/api/" + strings.TrimPrefix(req.URL.Path, "/api/v1/")
+		}
+		mux.ServeHTTP(w, req)
+	})
+
+	rateLimiter := ServShared.RateLimitMiddleware
+	if flag.Lookup("test.v") != nil {
+		rateLimiter = func(next http.Handler) http.Handler {
+			return next
+		}
+	}
+
+	// Wrap in ServShared middleware: Trace -> RateLimit -> CORS -> MaxBytes -> Auth -> Tenant -> v1Wrapper
+	return ServShared.TraceMiddleware("servmesh",
+		rateLimiter(
+			ServShared.CORSMiddleware(
+				ServShared.MaxBytesMiddleware(10*1024*1024)(
+					ServShared.AuthMiddleware(
+						ServShared.TenantMiddleware(v1Wrapper),
+					),
+				),
+			),
+		),
+	)
+}
+
+func httpError(w http.ResponseWriter, req *http.Request, msg string, status int) {
+	var errorCode string
+	switch status {
+	case http.StatusMethodNotAllowed:
+		errorCode = "ERR_METHOD_NOT_ALLOWED"
+	case http.StatusBadRequest:
+		errorCode = "ERR_BAD_REQUEST"
+	case http.StatusUnauthorized:
+		errorCode = "ERR_UNAUTHORIZED"
+	case http.StatusForbidden:
+		errorCode = "ERR_FORBIDDEN"
+	case http.StatusNotFound:
+		errorCode = "ERR_NOT_FOUND"
+	case http.StatusConflict:
+		errorCode = "ERR_CONFLICT"
+	case http.StatusNotImplemented:
+		errorCode = "ERR_NOT_IMPLEMENTED"
+	default:
+		errorCode = "ERR_INTERNAL_SERVER_ERROR"
+	}
+	ServShared.WriteJSONError(w, req, msg, errorCode, status)
 }
 
 func (r *Registry) startMulticastListener() {

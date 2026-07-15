@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"servmesh/pkg/registry"
+
+	"github.com/vyuvaraj/ServShared"
 )
 
 const version = "0.1.0"
@@ -159,13 +161,13 @@ func (p *devProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if serviceName == "" {
-		http.Error(w, "dev-mesh proxy error: could not determine service name from Host, Path prefix, or X-Mesh-Service header", http.StatusBadRequest)
+		httpError(w, r, "dev-mesh proxy error: could not determine service name from Host, Path prefix, or X-Mesh-Service header", http.StatusBadRequest)
 		return
 	}
 
 	instances := p.reg.Resolve(serviceName)
 	if len(instances) == 0 {
-		http.Error(w, fmt.Sprintf("dev-mesh proxy error: service %q not found in local registry", serviceName), http.StatusNotFound)
+		httpError(w, r, fmt.Sprintf("dev-mesh proxy error: service %q not found in local registry", serviceName), http.StatusNotFound)
 		return
 	}
 
@@ -176,7 +178,7 @@ func (p *devProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	targetURL, err := url.Parse(inst.Address)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("dev-mesh proxy error: invalid address %q: %v", inst.Address, err), http.StatusInternalServerError)
+		httpError(w, r, fmt.Sprintf("dev-mesh proxy error: invalid address %q: %v", inst.Address, err), http.StatusInternalServerError)
 		return
 	}
 
@@ -222,5 +224,28 @@ func startServer(srv *http.Server) {
 			log.Fatalf("Server failed: %v", err)
 		}
 	}()
+}
+
+func httpError(w http.ResponseWriter, r *http.Request, msg string, status int) {
+	var errorCode string
+	switch status {
+	case http.StatusMethodNotAllowed:
+		errorCode = "ERR_METHOD_NOT_ALLOWED"
+	case http.StatusBadRequest:
+		errorCode = "ERR_BAD_REQUEST"
+	case http.StatusUnauthorized:
+		errorCode = "ERR_UNAUTHORIZED"
+	case http.StatusForbidden:
+		errorCode = "ERR_FORBIDDEN"
+	case http.StatusNotFound:
+		errorCode = "ERR_NOT_FOUND"
+	case http.StatusConflict:
+		errorCode = "ERR_CONFLICT"
+	case http.StatusNotImplemented:
+		errorCode = "ERR_NOT_IMPLEMENTED"
+	default:
+		errorCode = "ERR_INTERNAL_SERVER_ERROR"
+	}
+	ServShared.WriteJSONError(w, r, msg, errorCode, status)
 }
 
