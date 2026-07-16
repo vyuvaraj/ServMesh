@@ -153,8 +153,8 @@ github.com/stretchr/testify v1.7.2/go.mod h1:R6va5+xMeoiuVRoj+gSkQ7d3FALtqAAGI1F
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/tv42/httpunix v0.0.0-20150427012821-b75d8614f926/go.mod h1:9ESjWnEqriFuLhtthL60Sar/7RFoluCcXsuvEwTV5KM=
-github.com/vyuvaraj/ServShared v1.0.2-0.20260714131806-8f86487bce70 h1:JnBkZJAVSdZf/k8gyWFPK+pJ3xwxgU3iaiXMwvHtnlM=
-github.com/vyuvaraj/ServShared v1.0.2-0.20260714131806-8f86487bce70/go.mod h1:quYZYsX/CJFhifDhhhpf3H32EZAov8SX+5eGC8wb5dI=
+github.com/vyuvaraj/ServShared v1.0.2-0.20260716090546-226c70693c88 h1:dccDJy0nQdRJK7O5q9yMCfpoZhcYr/k9SYQzBg8gEJk=
+github.com/vyuvaraj/ServShared v1.0.2-0.20260716090546-226c70693c88/go.mod h1:quYZYsX/CJFhifDhhhpf3H32EZAov8SX+5eGC8wb5dI=
 go.etcd.io/etcd/api/v3 v3.7.0 h1:WZlGK7pRtYGDB8ti8wkrQ5D2oWGMbtNL9VA5e+vF2Fg=
 go.etcd.io/etcd/api/v3 v3.7.0/go.mod h1:EcTihnwAQ0BQNh5dfAdaFVFdchuo7EP0HlX7TV3jz/A=
 go.etcd.io/etcd/client/pkg/v3 v3.7.0 h1:sW9njJzS3vXKcAJjjLQ4nk+avNUJ12Bcijcx8ehUskE=

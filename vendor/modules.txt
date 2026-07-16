@@ -63,7 +63,7 @@ github.com/mattn/go-isatty
 # github.com/mitchellh/go-homedir v1.1.0
 ## explicit
 github.com/mitchellh/go-homedir
-# github.com/vyuvaraj/ServShared v1.0.2-0.20260714131806-8f86487bce70
+# github.com/vyuvaraj/ServShared v1.0.2-0.20260716090546-226c70693c88
 ## explicit; go 1.26.4
 github.com/vyuvaraj/ServShared
 github.com/vyuvaraj/ServShared/pkg/middleware
