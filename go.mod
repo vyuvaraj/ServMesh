@@ -1,8 +1,8 @@
 module servmesh
 
-go 1.23.0
+go 1.26
 
-require github.com/vyuvaraj/ServShared v1.0.2-0.20260714131806-8f86487bce70
+require github.com/vyuvaraj/ServShared v1.0.2-0.20260719054743-81a270f75198
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -43,3 +43,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace github.com/vyuvaraj/ServShared => ../ServShared
